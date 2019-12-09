@@ -1,0 +1,28 @@
+plugins {
+    id 'java'
+}
+
+group 'org.example'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    maven {
+        url = "https://jitpack.io"
+    }
+}
+
+configurations {
+    compile.extendsFrom(shade)
+}
+
+dependencies {
+    shade 'com.github.IntellectualSites:lambda-factory:2.0.2-SNAPSHOT'
+    compile group: 'it.unimi.dsi', name: 'fastutil', version: '8.3.0'
+}
+
+jar {
+    from configurations.shade.collect { it.isDirectory() ? it : zipTree(it) }
+}
