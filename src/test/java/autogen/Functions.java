@@ -5,7 +5,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 public class Functions {
-	public static final String PACKAGE = "net.devtech";
+	public static final String PACKAGE = "net.devtech.utilib";
 
 	// class name, extends, return type, methodname, typed parameters, return/noreturn, non typed parametrs
 	public static final String THROWING = "package " + PACKAGE + ".functions;\n/*Auto-generated*/\npublic interface Throwing%s %s{\n\t%s %sThrow(%s) throws Throwable;\n\t@Override default %3$s %4$s(%5$s) {\n\t\ttry {\n\t\t\t%s%4$sThrow(%s);\n\t\t} catch(Throwable t) {\n\t\t\tthrow new RuntimeException(t);\n\t\t}\n\t}\n}";
