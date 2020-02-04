@@ -278,7 +278,7 @@ public class ReflectionUtil {
 		setAccessible(lookup);
 		MethodHandle handle = lookup.unreflect(method);
 		Class<?> type = method.getReturnType();
-		return (GeneralFunction) LambdaMetafactory.metafactory(lookup, "invoke"+(type.isPrimitive() ? type.getSimpleName() : "Object"), MethodType.methodType(GeneralFunction.class), handle.type().erase(), handle, handle.type()).getTarget().invoke();
+		return (GeneralFunction) LambdaMetafactory.metafactory(lookup, getGeneralFunctionName(type), MethodType.methodType(GeneralFunction.class), handle.type().erase(), handle, handle.type()).getTarget().invoke();
 	}
 
 	public static GeneralFunction getSpecial(Method method) throws Throwable {
@@ -290,7 +290,17 @@ public class ReflectionUtil {
 		setAccessible(lookup);
 		MethodHandle handle = lookup.unreflectSpecial(method, method.getDeclaringClass());
 		Class<?> type = method.getReturnType();
-		return (GeneralFunction) LambdaMetafactory.metafactory(lookup, "invoke"+(type.isPrimitive() ? type.getSimpleName() : "Object"), MethodType.methodType(GeneralFunction.class), handle.type().erase(), handle, handle.type()).getTarget().invoke();
+		return (GeneralFunction) LambdaMetafactory.metafactory(lookup, getGeneralFunctionName(type), MethodType.methodType(GeneralFunction.class), handle.type().erase(), handle, handle.type()).getTarget().invoke();
+	}
+
+	private static String getGeneralFunctionName(Class<?> type) {
+		if(type.isPrimitive()) {
+			char[] simple = type.getSimpleName().toCharArray();
+			simple[0] = Character.toUpperCase(simple[0]);
+			return "invoke"+new String(simple);
+		}
+		else
+			return "invokeObject";
 	}
 
 	/*
