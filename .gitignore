@@ -24,3 +24,6 @@ bin/
 
 # fabric / paper
 run/
+
+# unsafe
+*.hprof

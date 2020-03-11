@@ -1,10 +1,11 @@
 package net.devtech.utilib.functions;
-/*Auto-generated*/
-public interface ThrowingQuadConsumer<A, B, C, D> extends QuadConsumer<A, B, C, D> {
-	void acceptThrow(A a, B b, C c, D d) throws Throwable;
+
+
+public interface ThrowingQuadConsumer<A, B, C, D> extends net.devtech.utilib.functions.QuadConsumer<A, B, C, D> {
+	void acceptThrowing(A a, B b, C c, D d) throws Throwable;
 	@Override default void accept(A a, B b, C c, D d) {
 		try {
-			acceptThrow(a, b, c, d);
+			this.acceptThrowing(a, b, c, d);
 		} catch(Throwable t) {
 			throw new RuntimeException(t);
 		}

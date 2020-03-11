@@ -1,6 +1,7 @@
 package net.devtech.utilib.unsafe;
 
 import net.devtech.utilib.functions.GeneralFunction;
+import net.devtech.utilib.io.ThrowingSupplier;
 import net.devtech.utilib.structures.inheritance.InheritedMap;
 import sun.misc.Unsafe;
 import java.lang.invoke.LambdaMetafactory;
@@ -9,24 +10,29 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.*;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
  * extremely cursed code that no one deserves to see :D
  */
-public class ReflectionUtil {
+public class UnsafeUtil {
 	// constants
 	private static final Field LOOKUP_CLASS_ALLOWED_MODES_FIELD;
 	public static final Unsafe UNSAFE;
-	private static final int FIRST_INT_KLASS;
-	public static final int BYTE_ARR_KLASS;
-	public static final int SHORT_ARR_KLASS;
-	public static final int CHAR_ARR_KLASS;
-	public static final int INT_ARR_KLASS;
-	public static final int LONG_ARR_KLASS;
-	public static final int FLOAT_ARR_KLASS;
-	public static final int DOUBLE_ARR_KLASS;
+	private static final long FIRST_INT_KLASS;
+	public static final long BYTE_ARR_KLASS;
+	public static final long SHORT_ARR_KLASS;
+	public static final long CHAR_ARR_KLASS;
+	public static final long INT_ARR_KLASS;
+	public static final long LONG_ARR_KLASS;
+	public static final long FLOAT_ARR_KLASS;
+	public static final long DOUBLE_ARR_KLASS;
+	public static final long KLASS_OFFSET;
+	public static final boolean EIGHT_BYTE_KLASS;
+	public static final long CLASS_KLASS_OFFSET;
 
 
 	// static init
@@ -52,9 +58,28 @@ public class ReflectionUtil {
 			int modifiers = allowedModes.getModifiers();
 			modifiersField.setInt(allowedModes, modifiers & -17);
 			LOOKUP_CLASS_ALLOWED_MODES_FIELD = allowedModes;
+
+			long offset = UNSAFE.objectFieldOffset(FirstInt.class.getField("val"));
+			if (offset == 8) { // 32bit jvm
+				KLASS_OFFSET = offset - 4;
+				EIGHT_BYTE_KLASS = false;
+				CLASS_KLASS_OFFSET = 80;
+			} else if (offset == 12) { // 64bit jvm with compressed OOPs
+				KLASS_OFFSET = offset - 4;
+				EIGHT_BYTE_KLASS = false;
+				CLASS_KLASS_OFFSET = 84;
+			} else if (offset == 16) { // 64bit jvm
+				KLASS_OFFSET = offset - 8;
+				EIGHT_BYTE_KLASS = true;
+				CLASS_KLASS_OFFSET = 160;
+			} else {
+				throw new UnsupportedOperationException("klass casting not supported!");
+			}
 		} catch (ReflectiveOperationException e) {
 			throw new RuntimeException(e);
 		}
+
+
 		FIRST_INT_KLASS = getKlass(new FirstInt());
 		BYTE_ARR_KLASS = getKlass(new byte[0]);
 		SHORT_ARR_KLASS = getKlass(new short[0]);
@@ -66,29 +91,46 @@ public class ReflectionUtil {
 	}
 
 	// unsafe
+	private static final Map<Class<?>, ThrowingSupplier<?>> WITH_UNSAFE_CACHE = new HashMap<>();
 
-	public static <T> T allocate(Class<T> type, boolean attemptNormal) {
-		try {
-			if (attemptNormal) return type.newInstance();
-			else return (T) UNSAFE.allocateInstance(type);
-		} catch (ReflectiveOperationException e) {
+	@SuppressWarnings ("unchecked")
+	public static <T> T forceAllocate(Class<T> type) {
+		return (T) WITH_UNSAFE_CACHE.computeIfAbsent(type, c -> {
 			try {
-				return (T) UNSAFE.allocateInstance(type);
-			} catch (InstantiationException e2) {
-				throw new RuntimeException(e2);
+				// attempt public constructor
+				Constructor<?> ctor = c.getConstructor();
+				if (!ctor.isAccessible()) ctor.setAccessible(true);
+				return ctor::newInstance;
+			} catch (ReflectiveOperationException e) {
+				// nope
 			}
-		}
+
+			try { // attempt non-public constructor
+				Constructor<?> ctor = c.getDeclaredConstructor();
+				if (!ctor.isAccessible()) ctor.setAccessible(true);
+				return ctor::newInstance;
+			} catch (NoSuchMethodException e) {
+				// nope
+			}
+
+			try {
+				// on fail, use unsafe
+				return () -> UNSAFE.allocateInstance(c);
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}).get();
 	}
 
 	public static int getFirstInt(Object object) {
-		int orig = getKlass(object);
+		long orig = getKlass(object);
 		FirstInt first = unsafeCast(object, FIRST_INT_KLASS);
 		unsafeCast(object, orig);
 		return first.val;
 	}
 
 	public static void setFirstInt(Object object, int val) {
-		int orig = getKlass(object);
+		long orig = getKlass(object);
 		FirstInt firstInt = unsafeCast(object, FIRST_INT_KLASS);
 		firstInt.val = val;
 		unsafeCast(object, orig);
@@ -134,12 +176,12 @@ public class ReflectionUtil {
 	/**
 	 * casts the array to a different type of array without copying it,
 	 * all the classes inside the array should be an instance of the B class
+	 * you should recast it to it's original type after you have used it!
 	 *
 	 * @param obj the original array
 	 * @param bClass the class that each of the elements are expected to be
 	 * @param <A> the original type of the array
 	 * @param <B> the desired type of the array
-	 * @return
 	 */
 	public static <A, B> B[] arrayCast(A[] obj, Class<B> bClass) {
 		return (B[]) arrayCast(obj, getKlass(Array.newInstance(bClass, 0)));
@@ -147,31 +189,41 @@ public class ReflectionUtil {
 
 	/**
 	 * casts the array with the class' klass value without copying it, obtained from Reflection#getKlass(Class)
+	 * you should recast it to it's original type after you have used it!
 	 *
 	 * @param obj the array to be casted
 	 * @param classKlass the integer klass value
 	 * @param <A> the type of the array
 	 * @param <B> the desired type
 	 * @return
-	 * @see ReflectionUtil#getKlass(Object)
+	 * @see UnsafeUtil#getKlass(Object)
 	 */
-	public static <A, B> B[] arrayCast(A[] obj, int classKlass) {
-		UNSAFE.getAndSetInt(obj, 8, classKlass); // always 8 for all JVMs (x86/x64)
+	public static <A, B> B[] arrayCast(A[] obj, long classKlass) {
+		if (EIGHT_BYTE_KLASS) {
+			UNSAFE.getAndSetLong(obj, KLASS_OFFSET, classKlass);
+		} else {
+			UNSAFE.getAndAddInt(obj, KLASS_OFFSET, (int) classKlass);
+		}
 		return (B[]) obj;
 	}
 
 	/**
 	 * casts the object with the class' klass value without copying it, obtained from Reflection#getKlass(Class)
+	 * recast to original type or stack corruption may occur!
 	 *
 	 * @param object the object to be casted
 	 * @param klassValue the integer klass value
 	 * @param <A> the type of the object
 	 * @param <B> the desired type
 	 * @return
-	 * @see ReflectionUtil#getKlass(Object)
+	 * @see UnsafeUtil#getKlass(Object)
 	 */
-	public static <A, B> B unsafeCast(A object, int klassValue) {
-		UNSAFE.getAndSetInt(object, 8, klassValue);
+	public static <A, B> B unsafeCast(A object, long klassValue) {
+		if (EIGHT_BYTE_KLASS) {
+			UNSAFE.getAndSetLong(object, KLASS_OFFSET, klassValue);
+		} else {
+			UNSAFE.getAndAddInt(object, KLASS_OFFSET, (int) klassValue);
+		}
 		return (B) object;
 	}
 
@@ -179,13 +231,44 @@ public class ReflectionUtil {
 	 * gets the klass value from an object
 	 *
 	 * @param cls an instance of the class to obtain the klass value from
-	 * @return
 	 */
-	public static int getKlass(Object cls) {
-		return UNSAFE.getInt(cls, 8L);
+	public static long getKlass(Object cls) {
+		if (EIGHT_BYTE_KLASS) return UNSAFE.getLong(cls, KLASS_OFFSET);
+		else return UNSAFE.getInt(cls, KLASS_OFFSET);
+	}
+
+	/**
+	 * get the klass value from a class
+	 */
+	public static long getKlassFromClass(Class<?> type) {
+		if (EIGHT_BYTE_KLASS) return UNSAFE.getLong(type, CLASS_KLASS_OFFSET);
+		else return UNSAFE.getInt(type, CLASS_KLASS_OFFSET);
 	}
 
 	// basic reflection
+	private static final Map<Class<?>, ThrowingSupplier<?>> REFLECTION_CACHE = new HashMap<>();
+
+	@SuppressWarnings ("unchecked")
+	public static <T> T alloc(Class<?> type) {
+		return (T) REFLECTION_CACHE.computeIfAbsent(type, c -> {
+			try {
+				// attempt public constructor
+				Constructor<?> ctor = c.getConstructor();
+				if (!ctor.isAccessible()) ctor.setAccessible(true);
+				return ctor::newInstance;
+			} catch (ReflectiveOperationException e) {
+				// nope
+			}
+
+			try { // attempt non-public constructor
+				Constructor<?> ctor = c.getDeclaredConstructor();
+				if (!ctor.isAccessible()) ctor.setAccessible(true);
+				return ctor::newInstance;
+			} catch (NoSuchMethodException e) {
+				throw new RuntimeException(e);
+			}
+		}).get();
+	}
 
 	/**
 	 * iterate through all the methods in the class (including ones declared by super classes)
@@ -261,8 +344,7 @@ public class ReflectionUtil {
 	// general functions and lambdas
 
 	public static GeneralFunction getConstructor(Constructor<?> ctor) throws Throwable {
-		if(ctor.getParameterCount() > 2)
-			throw new IllegalArgumentException("Too many parameters");
+		if (ctor.getParameterCount() > 2) throw new IllegalArgumentException("Too many parameters");
 		ctor.setAccessible(true);
 		MethodHandles.Lookup lookup = MethodHandles.lookup();
 		MethodHandle handle = lookup.unreflectConstructor(ctor);
@@ -271,8 +353,7 @@ public class ReflectionUtil {
 
 	public static GeneralFunction getMethod(Method method) throws Throwable {
 		int params = method.getParameterCount() + (Modifier.isStatic(method.getModifiers()) ? 0 : 1);
-		if(params > 2)
-			throw new IllegalArgumentException("Too many parameters");
+		if (params > 2) throw new IllegalArgumentException("Too many parameters");
 		method.setAccessible(true);
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(method.getDeclaringClass());
 		setAccessible(lookup);
@@ -283,8 +364,7 @@ public class ReflectionUtil {
 
 	public static GeneralFunction getSpecial(Method method) throws Throwable {
 		int params = method.getParameterCount() + (Modifier.isStatic(method.getModifiers()) ? 0 : 1);
-		if(params > 2)
-			throw new IllegalArgumentException("Too many parameters");
+		if (params > 2) throw new IllegalArgumentException("Too many parameters");
 		method.setAccessible(true);
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(method.getDeclaringClass());
 		setAccessible(lookup);
@@ -294,13 +374,11 @@ public class ReflectionUtil {
 	}
 
 	private static String getGeneralFunctionName(Class<?> type) {
-		if(type.isPrimitive()) {
+		if (type.isPrimitive()) {
 			char[] simple = type.getSimpleName().toCharArray();
 			simple[0] = Character.toUpperCase(simple[0]);
-			return "invoke"+new String(simple);
-		}
-		else
-			return "invokeObject";
+			return "invoke" + new String(simple);
+		} else return "invokeObject";
 	}
 
 	/*
@@ -342,7 +420,7 @@ public class ReflectionUtil {
 	}
 
 	/**
-	 * @see ReflectionUtil#getConstructor(Class, String, Constructor)
+	 * @see UnsafeUtil#getConstructor(Class, String, Constructor)
 	 * but for getting fields instead of making objects
 	 */
 	public static <T> T getField(Class<T> lambdaClass, String invokeName, Field field) throws Throwable {
@@ -353,7 +431,7 @@ public class ReflectionUtil {
 	}
 
 	/**
-	 * @see ReflectionUtil#getConstructor(Class, String, Constructor)
+	 * @see UnsafeUtil#getConstructor(Class, String, Constructor)
 	 * but for setting fields instead of making objects
 	 */
 	public static <T> T setField(Class<T> lambdaClass, String invokeName, Field field) throws Throwable {
@@ -364,7 +442,7 @@ public class ReflectionUtil {
 	}
 
 	/**
-	 * @see ReflectionUtil#getConstructor(Class, String, Constructor)
+	 * @see UnsafeUtil#getConstructor(Class, String, Constructor)
 	 * but for invoking methods instead of making objects
 	 */
 	public static <T> T getMethod(Class<T> lambdaClass, String invokeName, Method method) throws Throwable {
@@ -374,19 +452,19 @@ public class ReflectionUtil {
 		return (T) LambdaMetafactory.metafactory(lookup, invokeName, MethodType.methodType(lambdaClass), handle.type().erase(), handle, handle.type()).getTarget().invoke();
 	}
 
-	public static MethodHandle getVirtual(Class<?> clazz, String methodName, Class<?> returnType, Class<?>...params) throws IllegalAccessException, NoSuchMethodException {
+	public static MethodHandle getVirtual(Class<?> clazz, String methodName, Class<?> returnType, Class<?>... params) throws IllegalAccessException, NoSuchMethodException {
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(clazz);
 		setAccessible(lookup);
 		return lookup.findVirtual(clazz, methodName, MethodType.methodType(returnType, params));
 	}
 
-	public static MethodHandle getSpecial(Class<?> clazz, String methodName, Class<?> returnType, Class<?>...params) throws IllegalAccessException, NoSuchMethodException {
+	public static MethodHandle getSpecial(Class<?> clazz, String methodName, Class<?> returnType, Class<?>... params) throws IllegalAccessException, NoSuchMethodException {
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(clazz);
 		setAccessible(lookup);
 		return lookup.findSpecial(clazz, methodName, MethodType.methodType(returnType, params), clazz);
 	}
 
-	public static MethodHandle getStatic(Class<?> clazz, String methodName, Class<?> returnType, Class<?>...params) throws IllegalAccessException, NoSuchMethodException {
+	public static MethodHandle getStatic(Class<?> clazz, String methodName, Class<?> returnType, Class<?>... params) throws IllegalAccessException, NoSuchMethodException {
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(clazz);
 		setAccessible(lookup);
 		return lookup.findStatic(clazz, methodName, MethodType.methodType(returnType, params));
@@ -404,14 +482,14 @@ public class ReflectionUtil {
 		return lookup.findSetter(clazz, fieldName, clazz.getDeclaredField(fieldName).getType());
 	}
 
-	public static MethodHandle getConstructor(Class<?> clazz, Class<?> returnType, Class<?>...params) throws IllegalAccessException, NoSuchMethodException {
+	public static MethodHandle getConstructor(Class<?> clazz, Class<?> returnType, Class<?>... params) throws IllegalAccessException, NoSuchMethodException {
 		MethodHandles.Lookup lookup = MethodHandles.lookup().in(clazz);
 		setAccessible(lookup);
 		return lookup.findConstructor(clazz, MethodType.methodType(returnType, params));
 	}
 
 	static class FirstInt {
-		int val;
+		public int val;
 	}
 
 	public static void setAccessible(MethodHandles.Lookup lookup) throws IllegalAccessException {

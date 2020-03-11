@@ -1,11 +1,10 @@
-package net.devtech.utilib.functions;
-
-
+package net.devtech.utilib.io;
+/*Auto-generated*/
 public interface ThrowingSupplier<A> extends java.util.function.Supplier<A> {
-	A getThrowing() throws Throwable;
+	A getThrow() throws Throwable;
 	@Override default A get() {
 		try {
-			return this.getThrowing();
+			return getThrow();
 		} catch(Throwable t) {
 			throw new RuntimeException(t);
 		}

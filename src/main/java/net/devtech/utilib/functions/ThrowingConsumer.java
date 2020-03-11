@@ -1,10 +1,11 @@
 package net.devtech.utilib.functions;
-/*Auto-generated*/
+
+
 public interface ThrowingConsumer<A> extends java.util.function.Consumer<A> {
-	void acceptThrow(A a) throws Throwable;
+	void acceptThrowing(A a) throws Throwable;
 	@Override default void accept(A a) {
 		try {
-			acceptThrow(a);
+			this.acceptThrowing(a);
 		} catch(Throwable t) {
 			throw new RuntimeException(t);
 		}

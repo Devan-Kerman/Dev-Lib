@@ -2,6 +2,9 @@ package net.devtech.utilib.java;
 
 import java.lang.reflect.Array;
 import java.util.Arrays;
+import java.util.function.Function;
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 public class MoreArrays {
 	/**
@@ -25,5 +28,13 @@ public class MoreArrays {
 	@SafeVarargs
 	public static <T> T[] vargs(T...args) {
 		return args;
+	}
+
+	public static <A, B> A[] map(B[] array, Function<B, A> function, IntFunction<A[]> supplier) {
+		A[] arr = supplier.apply(array.length);
+		for (int i = 0; i < array.length; i++) {
+			arr[i] = function.apply(array[i]);
+		}
+		return arr;
 	}
 }

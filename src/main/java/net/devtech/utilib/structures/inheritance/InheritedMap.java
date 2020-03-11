@@ -8,8 +8,10 @@ import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -22,9 +24,9 @@ import java.util.stream.Collectors;
  */
 public class InheritedMap<P, O> {
 	// a map of the classes to their attributes
-	private final Map<Class<?>, List<O>> attributes = new Object2ObjectOpenHashMap<>();
+	private final Map<Class<?>, List<O>> attributes = new HashMap<>();
 	// a map of classes to their and inherited attributes
-	private final Map<Class<?>, NodedList<O>> cache = new Object2ObjectOpenHashMap<>();
+	private final Map<Class<?>, NodedList<O>> cache = new HashMap<>();
 	// the parent type
 	private final Class<P> parentType;
 	// a class to attributes converter
